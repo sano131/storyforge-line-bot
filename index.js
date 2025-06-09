@@ -2,7 +2,7 @@
 import express from 'express';
 import { middleware, Client } from '@line/bot-sdk';
 import dotenv from 'dotenv';
-import { generateStory } from './services/openai.js';
+import { generateStory, generateImage } from './services/openai.js';
 dotenv.config();
 
 const config = {
@@ -23,12 +23,26 @@ async function handleEvent(event) {
   }
 
   const userMessage = event.message.text;
+
+  // GPTでストーリー生成
   const story = await generateStory(userMessage);
 
-  return client.replyMessage(event.replyToken, {
-    type: 'text',
-    text: story || '物語の生成に失敗しました。',
-  });
+  // 画像生成（ストーリーの最初の文だけ使う）
+  const promptForImage = story.split('\n')[0];
+  const imageUrl = await generateImage(promptForImage);
+
+  // LINEに画像とストーリーを順番に送信
+  return client.replyMessage(event.replyToken, [
+    {
+      type: 'image',
+      originalContentUrl: imageUrl,
+      previewImageUrl: imageUrl,
+    },
+    {
+      type: 'text',
+      text: story,
+    },
+  ]);
 }
 
 app.listen(process.env.PORT, () => {
