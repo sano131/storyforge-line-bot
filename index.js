@@ -3,6 +3,7 @@ import express from 'express';
 import { middleware, Client } from '@line/bot-sdk';
 import dotenv from 'dotenv';
 import { generateStory, generateImage } from './services/openai.js';
+import { logToSheet } from './services/sheets.js';
 dotenv.config();
 
 const config = {
@@ -13,6 +14,7 @@ const config = {
 const app = express();
 const client = new Client(config);
 
+// Webhook受信エンドポイント
 app.post('/webhook', middleware(config), async (req, res) => {
   Promise.all(req.body.events.map(handleEvent)).then((result) => res.json(result));
 });
@@ -27,11 +29,19 @@ async function handleEvent(event) {
   // GPTでストーリー生成
   const story = await generateStory(userMessage);
 
-  // 画像生成（ストーリーの最初の文だけ使う）
-  const promptForImage = story.split('\n')[0];
-  const imageUrl = await generateImage(promptForImage);
+  // DALL·Eで挿絵生成（ストーリー冒頭1行目）
+  const imagePrompt = story.split('\n')[0];
+  const imageUrl = await generateImage(imagePrompt);
 
-  // LINEに画像とストーリーを順番に送信
+  // スプレッドシートに保存
+  await logToSheet({
+    userId: event.source.userId,
+    inputPrompt: userMessage,
+    storyText: story,
+    imageUrl,
+  });
+
+  // LINEへ画像＋ストーリーを送信
   return client.replyMessage(event.replyToken, [
     {
       type: 'image',
@@ -45,6 +55,7 @@ async function handleEvent(event) {
   ]);
 }
 
+// サーバー起動
 app.listen(process.env.PORT, () => {
   console.log('🚀 LINE Bot server running');
 });
