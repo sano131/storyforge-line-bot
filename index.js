@@ -1,9 +1,10 @@
-// index.js（選択肢に応じて分岐するv2版）
+// index.js（Flex Message対応・選択肢付きストーリー返信）
 import express from 'express';
 import { middleware, Client } from '@line/bot-sdk';
 import dotenv from 'dotenv';
 import { generateStory, generateImage } from './services/openai.js';
 import { logToSheet, getLatestStory } from './services/sheets.js';
+import { createStoryFlex } from './utils/flexTemplate.js';
 dotenv.config();
 
 const config = {
@@ -29,21 +30,19 @@ async function handleEvent(event) {
   let inputPrompt = '';
 
   if (userMessage === 'A' || userMessage === 'B') {
-    // AまたはBを選んだ場合は続きの物語
     const previous = await getLatestStory(userId);
     if (!previous) {
       story = '前回のストーリーが見つかりませんでした。最初から始めてください。';
     } else {
-      inputPrompt = `前回のストーリー: ${previous.storyText}\nユーザーは「${userMessage}」を選びました。その続きの物語を書いてください。`;      
+      inputPrompt = `前回のストーリー: ${previous.storyText}\nユーザーは「${userMessage}」を選びました。その続きの物語を書いてください。`;
       story = await generateStory(inputPrompt);
     }
   } else {
-    // 最初の入力（自由入力）
     inputPrompt = userMessage;
     story = await generateStory(userMessage);
   }
 
-  // 画像生成（冒頭1行）
+  // 画像プロンプト整形＋生成
   const promptForImage = story
     .split('\n')[0]
     .replace(/[^\p{L}\p{N}\s]/gu, '')
@@ -58,33 +57,16 @@ async function handleEvent(event) {
     }
   }
 
-  // Sheetsに保存
+  // Sheets保存
   try {
-    await logToSheet({
-      userId,
-      inputPrompt,
-      storyText: story,
-      imageUrl,
-    });
+    await logToSheet({ userId, inputPrompt, storyText: story, imageUrl });
   } catch (e) {
     console.error('❌ Sheets保存失敗:', e.message || e);
   }
 
-  // LINE返信
-  const replyMessages = [];
-  if (imageUrl) {
-    replyMessages.push({
-      type: 'image',
-      originalContentUrl: imageUrl,
-      previewImageUrl: imageUrl,
-    });
-  }
-  replyMessages.push({
-    type: 'text',
-    text: story,
-  });
-
-  return client.replyMessage(event.replyToken, replyMessages);
+  // Flex Message生成
+  const flexMessage = createStoryFlex({ storyText: story, imageUrl });
+  return client.replyMessage(event.replyToken, [flexMessage]);
 }
 
 app.listen(process.env.PORT, () => {
