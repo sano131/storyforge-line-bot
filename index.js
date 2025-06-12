@@ -1,9 +1,9 @@
-// index.js
+// index.js（選択肢に応じて分岐するv2版）
 import express from 'express';
 import { middleware, Client } from '@line/bot-sdk';
 import dotenv from 'dotenv';
 import { generateStory, generateImage } from './services/openai.js';
-import { logToSheet } from './services/sheets.js';
+import { logToSheet, getLatestStory } from './services/sheets.js';
 dotenv.config();
 
 const config = {
@@ -23,19 +23,33 @@ async function handleEvent(event) {
     return Promise.resolve(null);
   }
 
-  const userMessage = event.message.text;
+  const userMessage = event.message.text.trim();
+  const userId = event.source.userId;
+  let story = '';
+  let inputPrompt = '';
 
-  // ✅ ストーリー生成
-  const story = await generateStory(userMessage);
+  if (userMessage === 'A' || userMessage === 'B') {
+    // AまたはBを選んだ場合は続きの物語
+    const previous = await getLatestStory(userId);
+    if (!previous) {
+      story = '前回のストーリーが見つかりませんでした。最初から始めてください。';
+    } else {
+      inputPrompt = `前回のストーリー: ${previous.storyText}\nユーザーは「${userMessage}」を選びました。その続きの物語を書いてください。`;      
+      story = await generateStory(inputPrompt);
+    }
+  } else {
+    // 最初の入力（自由入力）
+    inputPrompt = userMessage;
+    story = await generateStory(userMessage);
+  }
 
-  // ✅ 画像プロンプト整形＋生成（1行目から記号など除去）
+  // 画像生成（冒頭1行）
   const promptForImage = story
     .split('\n')[0]
-    .replace(/[^\w\sぁ-んァ-ヶー一-龯]/g, '')
+    .replace(/[^\p{L}\p{N}\s]/gu, '')
     .slice(0, 100);
 
   let imageUrl = null;
-
   if (promptForImage && promptForImage.length > 4) {
     try {
       imageUrl = await generateImage(promptForImage);
@@ -44,11 +58,11 @@ async function handleEvent(event) {
     }
   }
 
-  // ✅ シート保存（nullでもOK）
+  // Sheetsに保存
   try {
     await logToSheet({
-      userId: event.source.userId,
-      inputPrompt: userMessage,
+      userId,
+      inputPrompt,
       storyText: story,
       imageUrl,
     });
@@ -56,9 +70,8 @@ async function handleEvent(event) {
     console.error('❌ Sheets保存失敗:', e.message || e);
   }
 
-  // ✅ LINE返信構築
+  // LINE返信
   const replyMessages = [];
-
   if (imageUrl) {
     replyMessages.push({
       type: 'image',
@@ -66,7 +79,6 @@ async function handleEvent(event) {
       previewImageUrl: imageUrl,
     });
   }
-
   replyMessages.push({
     type: 'text',
     text: story,
@@ -75,7 +87,6 @@ async function handleEvent(event) {
   return client.replyMessage(event.replyToken, replyMessages);
 }
 
-// サーバー起動
 app.listen(process.env.PORT, () => {
   console.log('🚀 LINE Bot server running');
 });
