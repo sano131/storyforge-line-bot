@@ -1,4 +1,4 @@
-// services/sheets.js（logToSheet + getLatestStory）
+// services/sheets.js（章数記録対応）
 import { google } from 'googleapis';
 import { JWT } from 'google-auth-library';
 
@@ -15,10 +15,10 @@ function getSheetsClient() {
   return google.sheets({ version: 'v4', auth: client });
 }
 
-export async function logToSheet({ userId, inputPrompt, storyText, imageUrl }) {
+export async function logToSheet({ userId, inputPrompt, storyText, imageUrl, chapterNumber }) {
   const sheets = getSheetsClient();
   const now = new Date().toISOString();
-  const values = [[userId, now, inputPrompt, storyText, imageUrl]];
+  const values = [[userId, now, inputPrompt, storyText, imageUrl, chapterNumber.toString()]];
 
   await sheets.spreadsheets.values.append({
     spreadsheetId: process.env.SHEET_ID,
@@ -34,13 +34,12 @@ export async function getLatestStory(userId) {
   const sheets = getSheetsClient();
   const result = await sheets.spreadsheets.values.get({
     spreadsheetId: process.env.SHEET_ID,
-    range: 'A1:E1000',
+    range: 'A1:F1000',
   });
 
   const rows = result.data.values;
   if (!rows || rows.length < 2) return null;
 
-  // 最新のそのユーザーの行を下から検索
   for (let i = rows.length - 1; i >= 1; i--) {
     if (rows[i][0] === userId) {
       return {
@@ -49,6 +48,7 @@ export async function getLatestStory(userId) {
         inputPrompt: rows[i][2],
         storyText: rows[i][3],
         imageUrl: rows[i][4] || null,
+        chapterNumber: parseInt(rows[i][5]) || 1,
       };
     }
   }
