@@ -1,4 +1,4 @@
-// index.js（章数制限付き：3章でエンディング）
+// index.js（最終章はボタン非表示）
 import express from 'express';
 import { middleware, Client } from '@line/bot-sdk';
 import dotenv from 'dotenv';
@@ -79,9 +79,25 @@ async function handleEvent(event) {
     console.error('❌ Sheets保存失敗:', e.message || e);
   }
 
-  // Flex応答
-  const flexMessage = createStoryFlex({ storyText: story, imageUrl });
-  return client.replyMessage(event.replyToken, [flexMessage]);
+  // Flexメッセージ or 通常テキストで返信
+  let replyMessage;
+  if (chapterNumber >= 3) {
+    replyMessage = [
+      ...(imageUrl ? [{
+        type: 'image',
+        originalContentUrl: imageUrl,
+        previewImageUrl: imageUrl,
+      }] : []),
+      {
+        type: 'text',
+        text: story + '\n\n🎉 物語はここで完結しました。はじめから読むには新しいメッセージを送ってね！',
+      },
+    ];
+  } else {
+    replyMessage = [createStoryFlex({ storyText: story, imageUrl })];
+  }
+
+  return client.replyMessage(event.replyToken, replyMessage);
 }
 
 app.listen(process.env.PORT, () => {
