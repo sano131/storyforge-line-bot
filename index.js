@@ -14,7 +14,6 @@ const config = {
 const app = express();
 const client = new Client(config);
 
-// Webhook受信エンドポイント
 app.post('/webhook', middleware(config), async (req, res) => {
   Promise.all(req.body.events.map(handleEvent)).then((result) => res.json(result));
 });
@@ -26,33 +25,54 @@ async function handleEvent(event) {
 
   const userMessage = event.message.text;
 
-  // GPTでストーリー生成
+  // ✅ ストーリー生成
   const story = await generateStory(userMessage);
 
-  // DALL·Eで挿絵生成（ストーリー冒頭1行目）
-  const imagePrompt = story.split('\n')[0];
-  const imageUrl = await generateImage(imagePrompt);
+  // ✅ 画像プロンプト整形＋生成（1行目から記号など除去）
+  const promptForImage = story
+    .split('\n')[0]
+    .replace(/[^\w\sぁ-んァ-ヶー一-龯]/g, '')
+    .slice(0, 100);
 
-  // スプレッドシートに保存
-  await logToSheet({
-    userId: event.source.userId,
-    inputPrompt: userMessage,
-    storyText: story,
-    imageUrl,
-  });
+  let imageUrl = null;
 
-  // LINEへ画像＋ストーリーを送信
-  return client.replyMessage(event.replyToken, [
-    {
+  if (promptForImage && promptForImage.length > 4) {
+    try {
+      imageUrl = await generateImage(promptForImage);
+    } catch (e) {
+      console.warn('⚠️ 画像生成失敗:', e.message || e);
+    }
+  }
+
+  // ✅ シート保存（nullでもOK）
+  try {
+    await logToSheet({
+      userId: event.source.userId,
+      inputPrompt: userMessage,
+      storyText: story,
+      imageUrl,
+    });
+  } catch (e) {
+    console.error('❌ Sheets保存失敗:', e.message || e);
+  }
+
+  // ✅ LINE返信構築
+  const replyMessages = [];
+
+  if (imageUrl) {
+    replyMessages.push({
       type: 'image',
       originalContentUrl: imageUrl,
       previewImageUrl: imageUrl,
-    },
-    {
-      type: 'text',
-      text: story,
-    },
-  ]);
+    });
+  }
+
+  replyMessages.push({
+    type: 'text',
+    text: story,
+  });
+
+  return client.replyMessage(event.replyToken, replyMessages);
 }
 
 // サーバー起動
