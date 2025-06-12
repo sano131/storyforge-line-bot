@@ -1,4 +1,4 @@
-// index.js（Flex Message対応・選択肢付きストーリー返信）
+// index.js（章数制限付き：3章でエンディング）
 import express from 'express';
 import { middleware, Client } from '@line/bot-sdk';
 import dotenv from 'dotenv';
@@ -28,13 +28,22 @@ async function handleEvent(event) {
   const userId = event.source.userId;
   let story = '';
   let inputPrompt = '';
+  let chapterNumber = 1;
 
   if (userMessage === 'A' || userMessage === 'B') {
     const previous = await getLatestStory(userId);
     if (!previous) {
       story = '前回のストーリーが見つかりませんでした。最初から始めてください。';
     } else {
-      inputPrompt = `前回のストーリー: ${previous.storyText}\nユーザーは「${userMessage}」を選びました。その続きの物語を書いてください。`;
+      chapterNumber = previous.chapterNumber + 1;
+      inputPrompt = `前回のストーリー: ${previous.storyText}\nユーザーは「${userMessage}」を選びました。`;
+
+      if (chapterNumber >= 3) {
+        inputPrompt += '\nこれは物語の最終章です。感動的な結末を描いてください。';
+      } else {
+        inputPrompt += '\nその続きの物語を書いてください。';
+      }
+
       story = await generateStory(inputPrompt);
     }
   } else {
@@ -42,7 +51,7 @@ async function handleEvent(event) {
     story = await generateStory(userMessage);
   }
 
-  // 画像プロンプト整形＋生成
+  // 画像プロンプト整形
   const promptForImage = story
     .split('\n')[0]
     .replace(/[^\p{L}\p{N}\s]/gu, '')
@@ -59,12 +68,18 @@ async function handleEvent(event) {
 
   // Sheets保存
   try {
-    await logToSheet({ userId, inputPrompt, storyText: story, imageUrl });
+    await logToSheet({
+      userId,
+      inputPrompt,
+      storyText: story,
+      imageUrl,
+      chapterNumber,
+    });
   } catch (e) {
     console.error('❌ Sheets保存失敗:', e.message || e);
   }
 
-  // Flex Message生成
+  // Flex応答
   const flexMessage = createStoryFlex({ storyText: story, imageUrl });
   return client.replyMessage(event.replyToken, [flexMessage]);
 }
