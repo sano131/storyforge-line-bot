@@ -1,4 +1,4 @@
-// index.js（最終章はボタン非表示）
+// index.js（最終章はボタン・選択肢文も非表示）
 import express from 'express';
 import { middleware, Client } from '@line/bot-sdk';
 import dotenv from 'dotenv';
@@ -45,6 +45,14 @@ async function handleEvent(event) {
       }
 
       story = await generateStory(inputPrompt);
+
+      // ✅ 最終章ならA/B選択肢の行を削除する
+      if (chapterNumber >= 3) {
+        story = story
+          .split('\n')
+          .filter(line => !line.trim().startsWith('A:') && !line.trim().startsWith('B:'))
+          .join('\n');
+      }
     }
   } else {
     inputPrompt = userMessage;
